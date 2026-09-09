@@ -1,0 +1,53 @@
+# .github/workflows/terraform-ci-cd.yml
+name: "Multi-Environment GitOps IaC Pipeline"
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate_and_test:
+    name: "1. IaC Lint & Security Validation"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Execution Matrix
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform Binary Engine
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+
+      - name: Terraform Format Code Scan
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: |
+          cd terraform/environments/dev
+          terraform init -backend=false
+          terraform validate
+
+  deploy_dev:
+    name: "2. Secure Dev Automated Rollout"
+    needs: validate_and_test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Automated Production Grade Plan
+        run: |
+          cd terraform/environments/dev
+          terraform init
+          terraform plan -out=tfplan
